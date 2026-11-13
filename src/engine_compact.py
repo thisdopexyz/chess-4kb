@@ -1,7 +1,6 @@
 import sys,time
-M=30000;A1,H1=112,119
+M=30000
 V=[0,100,320,330,500,900,0]
-# PST 64 each
 PST=[
 [0]*64,
 [0,5,5,0,5,10,20,0,0,10,15,20,20,15,10,0,5,10,15,25,25,15,10,5,10,15,20,30,30,20,15,10,20,25,30,35,35,30,25,20,50,50,50,50,50,50,50,50,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
@@ -12,14 +11,12 @@ PST=[
 [-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-20,-30,-30,-40,-40,-30,-30,-20,-10,-20,-20,-20,-20,-20,-20,-10,20,20,0,0,0,0,20,20,20,30,10,0,0,10,30,20],
 ]
 D={2:[-33,-31,-18,-14,14,18,31,33],3:[-17,-15,15,17],4:[-16,-1,1,16],5:[-17,-16,-15,-1,1,15,16,17],6:[-17,-16,-15,-1,1,15,16,17]}
-SL={3,4,5}
 def on(i):return i&0x88==0
 def sn(i):return 'abcdefgh'[i&7]+str(8-(i>>4))
 def ps(s):return (8-int(s[1]))*16+(ord(s[0])-97)
 def init():
     b=[0]*128;ca=[1,1,1,1];ep=-1;c=1;ks={1:116,-1:4}
-    fen='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'
-    r=f=0
+    fen='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';r=f=0
     for ch in fen:
         if ch=='/':r+=1;f=0
         elif ch.isdigit():f+=int(ch)
@@ -29,8 +26,7 @@ def init():
             f+=1
     return b,c,ep,ca,ks,0
 def setfen(parts):
-    b=[0]*128;ca=[0,0,0,0];ep=-1;c=1;ks={}
-    r=f=0
+    b=[0]*128;ca=[0,0,0,0];ep=-1;c=1;ks={};r=f=0
     for ch in parts[0]:
         if ch=='/':r+=1;f=0
         elif ch.isdigit():f+=int(ch)
@@ -39,8 +35,7 @@ def setfen(parts):
             if p==6:ks[co]=i
             f+=1
     c=1 if len(parts)>1 and parts[1]=='w' else -1
-    if len(parts)>2:
-        s=parts[2];ca=[1 if 'K' in s else 0,1 if 'Q' in s else 0,1 if 'k' in s else 0,1 if 'q' in s else 0]
+    if len(parts)>2:s=parts[2];ca=[1 if 'K' in s else 0,1 if 'Q' in s else 0,1 if 'k' in s else 0,1 if 'q' in s else 0]
     if len(parts)>3 and parts[3]!='-':ep=ps(parts[3])
     hm=int(parts[4]) if len(parts)>4 else 0
     return b,c,ep,ca,ks,hm
@@ -152,18 +147,20 @@ def ev(b,c):
         v=b[i]
         if not v:continue
         p=abs(v);co=1 if v>0 else -1;sq=(i>>4)*8+(i&7);idx=sq if co==1 else 56-(i>>4)*8+(i&7)
-        s=V[p]+PST[p][idx]
-        sc+=co*s
+        sc+=co*(V[p]+PST[p][idx])
     return sc if c==1 else -sc
 NODES=0;TEND=0;STOP=0
+def mkey(b,m):
+    i,j,pr=m;vic=1 if pr==-1 else abs(b[j])
+    return (10*vic-abs(b[i]) if vic else 0)+(8 if 1<pr<9 else 0)
 def qs(b,c,ep,ca,ks,hm,a,be):
     global NODES
     NODES+=1;sc=ev(b,c)
     if sc>=be:return be
     if sc>a:a=sc
-    ms=legal(b,c,ep,ca,ks,hm)
-    for m in ms:
-        if b[m[1]]==0 and m[2]<=0:continue
+    for m in legal(b,c,ep,ca,ks,hm):
+        pr=m[2]
+        if pr==9 or (pr==0 and b[m[1]]==0):continue
         rec,c2,ep2,ca2,ks2,hm2=mk(b,c,ep,ca,ks,hm,m)
         v=-qs(b,c2,ep2,ca2,ks2,hm2,-be,-a)
         c,ep,ca,ks,hm=um(b,c2,ep2,ca2,ks2,hm2,rec)
@@ -172,12 +169,24 @@ def qs(b,c,ep,ca,ks,hm,a,be):
     return a
 def sr(b,c,ep,ca,ks,hm,d,a,be,ply):
     global NODES,TEND,STOP
-    if NODES&1023==0 and time.time()>=TEND:STOP=1
+    if NODES&2047==0 and time.time()>=TEND:STOP=1
     if STOP:return 0
+    a=max(a,-M+ply);be=min(be,M-ply-1)
+    if a>=be:return a
+    ic=inchk(b,c,ks)
     if d<=0:return qs(b,c,ep,ca,ks,hm,a,be)
+    if not ic and d>=3:
+        np=0
+        for v in b:
+            if v*c>2:np=1;break
+        if np:
+            v=-sr(b,-c,-1,ca,ks,hm,d-3,-be,-be+1,ply+1)
+            if STOP:return 0
+            if v>=be:return be
     ms=legal(b,c,ep,ca,ks,hm)
-    if not ms:return 0 if not inchk(b,c,ks) else -M+ply
-    ms.sort(key=lambda m:(10 if b[m[1]] else 0)+abs(b[m[1]])+(m[2] if m[2]>0 else 0),reverse=True)
+    if not ms:return 0 if not ic else -M+ply
+    if ic:d+=1
+    ms.sort(key=lambda m:mkey(b,m),reverse=True)
     best=-M
     for m in ms:
         rec,c2,ep2,ca2,ks2,hm2=mk(b,c,ep,ca,ks,hm,m)
@@ -197,14 +206,21 @@ def best(b,c,ep,ca,ks,hm,tlim):
     for d in range(1,50):
         NODES=0;a,be=-M,M;cur=bm;loc=-M
         ms2=legal(b,c,ep,ca,ks,hm)
-        ms2.sort(key=lambda m:(10 if b[m[1]] else 0)+abs(b[m[1]])+(m[2] if m[2]>0 else 0),reverse=True)
+        ms2.sort(key=lambda m:mkey(b,m),reverse=True)
+        if bm in ms2:ms2.remove(bm);ms2.insert(0,bm)
+        f=1
         for m in ms2:
             rec,c2,ep2,ca2,ks2,hm2=mk(b,c,ep,ca,ks,hm,m)
-            v=-sr(b,c2,ep2,ca2,ks2,hm2,d-1,-be,-a,1)
+            if f:v=-sr(b,c2,ep2,ca2,ks2,hm2,d-1,-be,-a,1)
+            else:
+                v=-sr(b,c2,ep2,ca2,ks2,hm2,d-1,-a-1,-a,1)
+                if not STOP and v>a:v=-sr(b,c2,ep2,ca2,ks2,hm2,d-1,-be,-a,1)
             c,ep,ca,ks,hm=um(b,c2,ep2,ca2,ks2,hm2,rec)
             if STOP:break
             if v>loc:loc=v;cur=m
             if v>a:a=v
+            f=0
+            if a>=be:break
         if not STOP:bm=cur
         if STOP or time.time()>=TEND:break
     return bm
